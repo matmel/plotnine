@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+from .stat_contour import stat_contour
 from .stat_count import stat_count
 from .stat_bin import stat_bin
 from .stat_bin_2d import stat_bin_2d, stat_bin2d
@@ -22,7 +23,7 @@ from .stat_unique import stat_unique
 from .stat_ydensity import stat_ydensity
 
 
-__all__ = ['stat_count', 'stat_bin',
+__all__ = [ 'stat_contour', 'stat_count', 'stat_bin',
            'stat_bin_2d', 'stat_bin2d',
            'stat_bindot', 'stat_boxplot',
            'stat_density', 'stat_ecdf',

@@ -2,7 +2,8 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
 import numpy as np
-from matplotlib.collections import PolyCollection
+import matplotlib.path as mpath
+from matplotlib.collections import PathCollection
 from matplotlib.patches import Rectangle
 
 from ..utils import to_rgba, SIZE_FACTOR
@@ -45,37 +46,37 @@ class geom_polygon(geom):
         data = coord.transform(data, panel_params, munch=True)
         data['size'] *= SIZE_FACTOR
 
-        # Each group is a polygon with a single facecolor
-        # with potentially an edgecolor for every edge.
-        ngroups = data['group'].unique().size
-        verts = [None] * ngroups
-        facecolor = [None] * ngroups
-        edgecolor = [None] * ngroups
-        linestyle = [None] * ngroups
-        linewidth = [None] * ngroups
-
         # Some stats may order the data in ways that prevent
         # objects from occluding other objects. We do not want
         # to undo that order.
         grouper = data.groupby('group', sort=False)
         for i, (group, df) in enumerate(grouper):
-            verts[i] = tuple(zip(df['x'], df['y']))
+            segs = np.column_stack([df['x'], df['y']])
+            nsegs = segs.shape[0]
+            if 'seg_codes' in df:
+                codes = df['seg_codes']
+            else:
+                codes = [1] + ([2] * (nsegs - 1))
+            segs, codes = close_curves(segs, codes)
+
             fill = to_rgba(df['fill'].iloc[0], df['alpha'].iloc[0])
-            facecolor[i] = 'none' if fill is None else fill
-            edgecolor[i] = df['color'].iloc[0] or 'none'
-            linestyle[i] = df['linetype'].iloc[0]
-            linewidth[i] = df['size'].iloc[0]
+            facecolor = 'none' if fill is None else fill
+            edgecolor = df['color'].iloc[0] or 'none'
+            linestyle = df['linetype'].iloc[0]
+            linewidth = df['size'].iloc[0]
 
-        col = PolyCollection(
-            verts,
-            facecolors=facecolor,
-            edgecolors=edgecolor,
-            linestyles=linestyle,
-            linewidths=linewidth,
-            transOffset=ax.transData,
-            zorder=params['zorder'])
+            paths = [mpath.Path(segs, codes=codes)]
 
-        ax.add_collection(col)
+            col = PathCollection(
+                paths,
+                facecolors=facecolor,
+                edgecolors=edgecolor,
+                linestyles=linestyle,
+                linewidths=linewidth,
+                transOffset=ax.transData,
+                zorder=params['zorder'])
+
+            ax.add_collection(col)
 
     @staticmethod
     def draw_legend(data, da, lyr):
@@ -114,3 +115,24 @@ class geom_polygon(geom):
                          capstyle='projecting')
         da.add_artist(rect)
         return da
+
+def close_curves(segs, codes):
+    segs = np.asarray(segs, dtype=np.float64)
+    codes = np.asarray(codes, dtype=np.int8)
+    npts = segs.shape[0]
+    discs = np.argwhere(codes == 1).flatten().tolist() + [npts]
+    ndiscs = len(discs) - 1
+    npts_repeated = npts + ndiscs
+    repeated_segs = np.empty((npts_repeated, 2), dtype=np.float64)
+    repeated_codes = np.empty((npts_repeated, ), dtype=np.int8)
+
+    for i_disc, (i_lo, i_hi) in enumerate(zip(discs[0:-1], discs[1:])):
+        irpt_lo = i_lo + i_disc
+        irpt_hi = i_hi + i_disc
+        repeated_segs[irpt_lo:irpt_hi, :] = segs[i_lo:i_hi, :]
+        repeated_segs[irpt_hi, :] = segs[i_lo, :]
+        repeated_codes[irpt_lo] = mpath.Path.MOVETO  # = 1
+        repeated_codes[irpt_lo + 1:irpt_hi] = mpath.Path.LINETO  # = 2
+        repeated_codes[irpt_hi] = mpath.Path.CLOSEPOLY  # = 79
+
+    return repeated_segs, repeated_codes
